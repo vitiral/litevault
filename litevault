@@ -44,7 +44,7 @@ curpass = ''
 # xdotool mappings
 # http://www.linux.org/threads/xdotool-keyboard.6414/
 
-xdochars = {
+xdotool_char_mappings = {
     '~': 'asciitilde'   , '`': 'quoteleft'   , '!': 'exclam'       , '@': 'at'          ,
     '#': 'numbersign'   , '$': 'dollar'      , '%': 'percent'      , '^': 'asciicircum' ,
     '&': 'ampersand'    , '*': 'asterisk'    , '(': 'parenleft'    , ')': 'parenright'  ,
@@ -85,7 +85,7 @@ def output_password(signum, stack):
     if not curpass:
         return
     k = ' key '
-    characters = [c if c not in xdochars else xdochars[c]
+    characters = [c if c not in xdotool_char_mappings else xdotool_char_mappings[c]
                   for c in curpass]
     args = k + k.join(characters)
     subprocess.check_call(('xdotool ' + args).encode().split())
@@ -162,6 +162,8 @@ def load_info(item, vault):
 def load_password(item, vault, append=False):
     global curpass
     value = vault[item]
+    if value is None:
+        return
     key = 'p' if 'p' in value else 'password' if 'password' in value else None
     if key is None:
         print('!! no password for {} !!'.format(item))
@@ -177,6 +179,8 @@ def load_password(item, vault, append=False):
 def load_user(item, vault):
     global curpass
     value = vault[item]
+    if value is None:
+        return
     key = 'u' if 'u' in value else 'username' if 'username' in value else None
     if key is None:
         print('!! no username for {} !!'.format(item))
@@ -189,6 +193,7 @@ def load_user(item, vault):
 def load_all(item, vault):
     load_user(item, vault)
     load_password(item, vault, append=True)
+    load_info(item, vault)
 
 
 def list_items(vault):
@@ -198,7 +203,6 @@ def list_items(vault):
     if not user_input:
         return
     execute_command(vault, user_input)
-
 
 def clear_password():
     global curpass
@@ -221,14 +225,19 @@ def execute_command(vault, user_input):
     cmd = user_input[0]
     if cmd not in interface:
         cmd = 'a'
-        item = user_input[0]
+        item = ' '.join(user_input)
     else:
         if len(user_input) > 1:
-            cmd, item = user_input
+            cmd = user_input[0]
+            item = ' '.join(user_input[1:])
         else:
             cmd, = user_input
             item = None
-    return interface[cmd](item)
+    try:
+        return interface[cmd](item)
+    except configparser.ParsingError as E:
+        print("parsing error: {}".format(E))
+        return None
 
 
 def parse_args():
@@ -237,7 +246,7 @@ def parse_args():
     parser.add_argument('-w', '--wait', default=0.25, help="Wait time before sending the stored password")
     parser.add_argument('-p', '--password', help='Use only in testing, not secure!')
     parser.add_argument('-f', '--file', default='~/.auth.aes',
-                        help='password file to load')
+                        help='password file to load. Default is ~/.auth.aes')
     parser.add_argument('-e', '--encryption', default='aes-256-cbc',
                         help='default encryption method to use')
     args = parser.parse_args()
