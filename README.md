@@ -3,9 +3,13 @@
 litevault provides an ultra lightweight command line password manager
 
 ## Installation
-litevault is a single file that can run on any system that has python 2.6+ (including python3+)
+litevault is a single file that can run on any system that has python 2.6+ (including python3+).
+It has two dependencies:
+- xdotool from Xorg
+- openssl
 
 To install, simply copy the litevault file into /usr/bin or wherever you put your user executables
+
 
 ## Use
 
