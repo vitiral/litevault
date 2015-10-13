@@ -25,6 +25,6 @@ litevault follows the KISS (Keep It Simple Stupid) principle as much as possible
 - run `litevault` from the command line, you will be prompted for a password to unlock you vault
     - run `litevault -h` for help
 - You can now type a command to retrieve a password or info. Type `?` or `h` to get help
-- Once a password has been retrieved, you just use the following command to have it typed out:
-    `kill -SIGUSR1 $(cat /tmp/litevault.pid)`
+- Once a password has been retrieved, you just use the following command to have it typed out
+    on your keyboard: `litevault -s`
 - it is recommended that you set this command to a key combination in your window manager
