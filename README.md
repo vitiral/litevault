@@ -1,10 +1,16 @@
-# NOTE: litevault is still in development !!! (Alpha)
-
 # litevault -- the lightweight command line password manager
 
 litevault provides an ultra lightweight command line password manager
 
+## Installation
+litevault is a single file that can run on any system that has python 2.6+ (including python3+)
+
+To install, simply copy the litevault file into /usr/bin or wherever you put your user executables
+
+## Use
+
 litevault follows the KISS (Keep It Simple Stupid) principle as much as possible. Use it as follows:
+- install it (see above)
 - store passwords in [.ini syntax](https://docs.python.org/3/library/configparser.html)
     in a `aes-256-cbc` encrypted file with `salt` enabled.
     - an example file is in `examples/plain.txt`. An example encrypted file is `examples/encrypted.aes` with

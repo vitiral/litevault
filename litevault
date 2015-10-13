@@ -28,6 +28,7 @@ help_msg = '''
 Help:
 h or ?      = help
 q           = quit
+c           = clear password
 No Argument = get all (same as 'a')
 l           = list items
 u           = get user
@@ -37,7 +38,6 @@ a           = get both user and password (insert a TAB between them and end with
 '''
 
 ssl_load = "openssl {method} -d -salt -pass stdin -in {path}"
-# curpass = '''my secret password ~`!@#$%^&*()-_+=[]{}|\\,.<>?/'" '''
 curpass = ''
 
 ##################################################
@@ -200,6 +200,11 @@ def list_items(vault):
     execute_command(vault, user_input)
 
 
+def clear_password():
+    global curpass
+    curpass = ''
+
+
 def execute_command(vault, user_input):
     print_help = lambda item: print(help_msg)
     interface = {
@@ -209,6 +214,7 @@ def execute_command(vault, user_input):
         'p': lambda item: load_password(item, vault),
         'i': lambda item: load_info(item, vault),
         'a': lambda item: load_all(item, vault),
+        'c': lambda item: clear_password(),
         'q': lambda item: sys.exit(0)
     }
     user_input = user_input.split()
@@ -229,8 +235,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--send_stored_pass', action='store_true')
     parser.add_argument('-w', '--wait', default=0.25, help="Wait time before sending the stored password")
-    parser.add_argument('-p', '--password', help='Use only in testing (not secure)')
-    parser.add_argument('-f', '--file', default='pass.aes',
+    parser.add_argument('-p', '--password', help='Use only in testing, not secure!')
+    parser.add_argument('-f', '--file', default='~/.auth.aes',
                         help='password file to load')
     parser.add_argument('-e', '--encryption', default='aes-256-cbc',
                         help='default encryption method to use')
@@ -242,9 +248,13 @@ def parse_args():
         time.sleep(args.wait)
         subprocess.check_output('kill -10 {}'.format(pid).encode(), shell=True)
         sys.exit()
+    path = os.path.abspath(os.path.expanduser(args.file))
+    if not os.path.exists(path):
+        print("Vault file not found: {}".format(path))
+        sys.exit(1)
     if not args.password:
-        args.password = getpass.getpass("Decryption password: ")
-    return Vault(path=args.file, encryption=args.encryption, password=args.password)
+        args.password = getpass.getpass("Password for {}: ".format(args.file))
+    return Vault(path=path, encryption=args.encryption, password=args.password)
 
 
 def main():
