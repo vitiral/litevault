@@ -3,19 +3,21 @@ from __future__ import print_function
 
 import os
 import sys
+import re
+import json
 import time
 import getpass
 import subprocess
 import signal
 import argparse
 
-# Python 2 & 3 compatibility
-try:
-    import configparser
-except ImportError:
-    import ConfigParser as configparser
-    from StringIO import StringIO
+'''
+Notes:
+    echo "hi there" | openssl enc -aes-256-cbc -salt -pass pass:hello | openssl aes-256-cbc -salt -d -pass pass:hello
+    openssl enc -aes-256-cbc -salt << EOF | openssl aes-256-cbc -salt -d -pass pass:hello
+'''
 
+# Python 2 & 3 compatibility
 if sys.version_info[0] == 2:
     input = raw_input
 
@@ -30,7 +32,7 @@ h or ?      = help
 q           = quit
 c           = clear password
 No Argument = get all (same as 'a')
-l           = list items
+l           = list items. Add an item to do a fuzzy search
 u           = get user
 p           = get password
 i           = get info
@@ -38,6 +40,7 @@ a           = get both user and password (insert a TAB between them and end with
 '''
 
 ssl_load = "openssl {method} -d -salt -pass stdin -in {path}"
+ssl_dump = "openssl enc -{method} -salt -out {path} -pass fd:{fileno} << EOF"
 curpass = ''
 
 ##################################################
@@ -72,10 +75,12 @@ def pplist(l, cols=4, indent=0):
         print(' ' * indent + "".join(str.ljust(i, 20) for i in row))
 
 
-def clear_screen(msg=None):
-    if msg is None:
-        msg = '\n ** Press ENTER to clear the screen **'
-    out = input(msg)
+def clear_screen(msg=True):
+    out = ''
+    if msg:
+        if msg is True:
+            msg = '\n ** Press ENTER to clear the screen **'
+        out = input(msg)
     print('\x1b[0;0H\x1b[2J\n' + intro_msg)
     return out
 
@@ -108,38 +113,57 @@ def verify_environment():
 # Vault object
 
 class Vault(object):
-    def __init__(self, path, encryption, password):
+    def __init__(self, path, password, encryption='aes-256-cbc'):
         self.path = path
         self.encryption = encryption
         self.password = password
 
+    @staticmethod
+    def _popen(cmd):
+        return subprocess.Popen(cmd.encode().split(),
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT)
+
     def get_vault(self):
+        if not os.path.exists(self.path):
+            return {}
         cmd = ssl_load.format(method=self.encryption, path=self.path)
-        p = subprocess.Popen(cmd.encode().split(),
-                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT)
-        p.stdin.write(self.password.encode())
+        p = self._popen(cmd)
+        p.stdin.write(self.password.encode() + b'\n')
         stdout, stderr = p.communicate()
         assert not stderr
-        vault = configparser.ConfigParser()
-        if hasattr(vault, 'read_string'):
-            vault.read_string(stdout.decode())
-        else:
-            fp = StringIO(stdout)
-            vault.readfp(fp)
-        return vault
+        return json.loads(stdout.decode())
+
+    def store_vault(self, vault):
+        text = json.dumps(vault).encode()
+        passpipe = os.popen('', 'w')
+        cmd = ssl_dump.format(method=self.encryption, path=self.path,
+                              fileno=passpipe._stream.fileno())
+        p = subprocess.Popen(
+            cmd.encode(), shell=True,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT)
+        time.sleep(0.25)
+        p.stdin.write(text + b'\nEOF\n')
+        passpipe._stream.write(self.password + '\n')
+        # passpipe.close()
+        stdout, stderr = p.communicate()
+
+        # towrite = text + b'\nEOF\n' + self.password.encode() + b'\n'
+        # stdout, stderr = p.communicate(input=towrite)
+        assert not stderr
+        print(stdout.decode())
+        import ipdb; ipdb.set_trace()
 
     def __getitem__(self, item):
         vault = self.get_vault()
-        if not vault.has_section(item):
+        if item not in vault:
             print("item '{}' not found".format(item))
             return
-        return dict(vault.items(section=item))
+        return vault[item]
 
     def __iter__(self):
-        vault = self.get_vault()
-        out = iter(vault.sections())
-        return out
+        return iter(self.get_vault())
 
 
 ##################################################
@@ -196,24 +220,31 @@ def load_all(item, vault):
     load_info(item, vault)
 
 
-def list_items(vault):
+def list_items(vault, item=None):
     print('\n ** Items **')
-    pplist(list(vault))
+    if item is None:
+        items = list(vault)
+    else:
+        pat = re.compile(r'.*?'.join(item))
+        items = [i for i in vault if pat.search(i)]
+    pplist(items)
     user_input = clear_screen("command: ")
     if not user_input:
         return
     execute_command(vault, user_input)
 
+
 def clear_password():
     global curpass
     curpass = ''
+    clear_screen(False)
 
 
 def execute_command(vault, user_input):
     print_help = lambda item: print(help_msg)
     interface = {
         '?': print_help, 'h': print_help,
-        'l': lambda item: list_items(vault),
+        'l': lambda item: list_items(vault, item),
         'u': lambda item: load_username(item, vault),
         'p': lambda item: load_password(item, vault),
         'i': lambda item: load_info(item, vault),
@@ -281,4 +312,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    test_vault()
+    # main()
