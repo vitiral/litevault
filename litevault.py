@@ -28,6 +28,7 @@ if sys.version_info[0] == 2:
 # Global current stored password
 curpass = ''
 args = None
+kill = False
 
 ##################################################
 # Constants
@@ -44,12 +45,11 @@ Help:
 h or ?         = help
 q or exit      = quit litevault
 L              = lock litevault (same as if it timed out)
-s or save      = save vault state to disk)
 n              = set new password for vault (and save it to disk)
 t              = set new timeout password
 l or ls     [] = list items. Add an item to do a fuzzy search
-c or mk     [] = create/overwrite item in vault  * (in memory. Use 's' to save changes to file)
-d or rm     [] = delete data from vault          * (in memory, use 's' to save changes to file)
+c or mk     [] = create/overwrite item in vault
+d or rm     [] = delete data from vault
 u           [] = get user
 p           [] = get password
 i           [] = get info
@@ -63,20 +63,45 @@ TIMEOUT_PWD_KEY='__litevault_timeout_password__'
 # X keboard automation mappings
 # http://www.linux.org/threads/xdotool-keyboard.6414/
 
+shift_c = 'keydown Shift_L\nusleep 500\nkey {}\nusleep 500\nkeyup Shift_L'.format
+
+x_special_char_mappings = {
+    '!': shift_c('1'),
+    '@': shift_c('2'),
+    '#': shift_c('3'),
+    '$': shift_c('4'),
+    '%': shift_c('5'),
+    '^': shift_c('6'),
+    '&': shift_c('7'),
+    '*': shift_c('8'),
+    '(': shift_c('9'),
+    ')': shift_c('0'),
+    ':': shift_c('semicolon'),
+    '~': shift_c('quoteleft'),
+    '_': shift_c('minus'),
+    '+': shift_c('equal'),
+    '{': shift_c('bracketleft'),
+    '}': shift_c('bracketright'),
+    '|': shift_c('backslash'),
+    '"': shift_c('quoteright'),
+    '<': shift_c('comma'),
+    '>': shift_c('period'),
+    '?': shift_c('slash'),
+    '\n': 'keydown Return\nkeyup Return'      ,
+}
+
 x_char_mappings = {
-    '~': 'asciitilde'   , '`': 'quoteleft'   , '!': 'exclam'       , '@': 'at'          ,
-    '#': 'numbersign'   , '$': 'dollar'      , '%': 'percent'      , '^': 'asciicircum' ,
-    '&': 'ampersand'    , '*': 'asterisk'    , '(': 'parenleft'    , ')': 'parenright'  ,
-    '-': 'minus'        , '_': 'underscore'  , '+': 'plus'         , '=': 'equal'       ,
-    '[': 'bracketleft'  , '{': 'braceleft'   , ']': 'bracketright' , '}': 'braceright'  ,
-    '|': 'bar'          , '\\': 'backslash'  , ':': 'colon'        , ';': 'semicolon'   ,
-    '"': 'quotedbl'     , "'": 'quoteright'  , ',': 'comma'        , '<': 'less'        ,
-    '.': 'period'       , '>': 'greater'     , '/': 'slash'        , '?': 'question'    ,
-    ' ': 'space'        , '\t': 'Tab'        , '\n': 'Return'      ,
+    "`": 'quoteleft'   ,
+    '-': 'minus'       , '=': 'equal'        ,
+    '[': 'bracketleft' , ']': 'bracketright' ,
+    '\\': 'backslash'  , ';': 'semicolon'    ,
+    "'": 'quoteright'  , ',': 'comma'        ,
+    '.': 'period'      , '/': 'slash'        ,
+    ' ': 'space'       , '\t': 'Tab'         ,
 }
 
 
-def send_keypresses(characters, delay_us=10000):
+def send_keypresses(characters, delay_us=10000, wait=0):
     '''Send a sequence of keypresses to the keyboard.
 
     This function is intended to be secure -- as in outside processes should not be
@@ -85,12 +110,21 @@ def send_keypresses(characters, delay_us=10000):
     :characters: characters to send
     :delay_us: delay in microseconds between each keypress
     '''
-    k = '\nusleep {}\nkey '.format(delay_us)
-    keypresses = (c if c not in x_char_mappings else x_char_mappings[c]
-                  for c in characters)
-    keypresses = ('key ' + k.join(keypresses) + '\n').encode()
+    time.sleep(wait)
+    keypresses = []
+    for c in characters:
+        if c in x_special_char_mappings:
+            keypresses.append(x_special_char_mappings[c])
+        elif c in x_char_mappings:
+            keypresses.append('key ' + x_char_mappings[c])
+        elif c in string.ascii_uppercase:
+            keypresses.append(shift_c(c))
+        else:
+            keypresses.append('key ' + c)
+    keypresses_bytes = '\nusleep {}\n'.format(delay_us).join(keypresses).encode() + b'\n'
     sh = subprocess.Popen(['xte'], stdin=subprocess.PIPE)
-    sh.communicate(input=keypresses)
+    # print("Sending keypresses {}\n{!r}".format(keypresses, keypresses_bytes))
+    sh.communicate(input=keypresses_bytes)
 
 
 ##################################################
@@ -238,6 +272,7 @@ class Vault(dict):
         self._dump_passwords(passwords)
 
 
+
 ##################################################
 # User Functions
 
@@ -255,7 +290,7 @@ def load_info(vault, item):
     info = value[key]
     print('\n ** Info **\n'.format(item) + info)
     clear_screen()
-    return
+    return info
 
 
 def load_password(vault, item, append=False):
@@ -373,7 +408,9 @@ def create_item(vault, item):
         value['i'] = info
     value['t'] = time.time()
     clear_screen(False)
-    print(" ** Stored {}. Use 's' to save to file **".format(item))
+    print(" ** Stored {} **".format(item))
+    vault.save()
+    print("Vault Saved")
     if load:
         print(" ** Loading new item's password **")
         load_password(vault, item)
@@ -387,12 +424,7 @@ def delete_item(vault, item):
         print("Not deleting")
         return
     vault.pop(item)
-    print("Deleted. Use 's' to save to file")
-
-
-def save_vault(vault, *args):
-    vault.save()
-    print("Vault Saved")
+    print("Deleted {} ".format(item))
 
 
 def new_password(vault, *args):
@@ -425,7 +457,6 @@ def execute_command(vault, user_input):
         # global actions
         '?': print_help,    'h': print_help,
         'q': quit_app,      'exit': quit_app,
-        's': save_vault,    'save': save_vault,
         'n': new_password,
         't': set_timeout_pwd,
         'L': lambda vault, item: timeout_loop(vault, locked=True),
@@ -457,16 +488,13 @@ def timeout_loop(vault, locked=False):
         print(" ** litevault locked. Buffered password cleared    **")
     else:
         print(' ** litevault timed out. Buffered password cleared **')
-    print(" ** 's' will still save and 'q' will quit          ** ")
+    print(" ** 'q' will still quit                            ** ")
     timeout_pwd = vault.get(TIMEOUT_PWD_KEY)
     msg = "Enter vault password: " if not timeout_pwd else "Enter vault or timeout password: "
     for n in range(3):
         pwd = getpass.getpass(msg)
         if pwd == 'q':
             quit_app()
-        elif pwd == 's':
-            save_vault()
-            continue
         if pwd == vault.password or pwd == timeout_pwd:
             return
         time.sleep(1)
@@ -526,7 +554,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--file', default='~/.vault',
                         help='password file to load. Default is ~/.vault')
-    parser.add_argument('-t', '--timeout', default=300, type=float,
+    parser.add_argument('-t', '--timeout', default=90, type=float,
                         help='time in seconds before program is locked with no activity (default=300)')
     parser.add_argument('-e', '--editor', help="Editor to use for info screen")
     parser.add_argument('-m', '--merge', nargs='+', help="input two vaults to merge based on timestamps")
@@ -562,9 +590,11 @@ def parse_args():
     return args
 
 
-def main():
+def main(loops=None):
+    global args
     signal.signal(signal.SIGINT, lambda *a: quit_app("\n ** Received Cntrl+C, quitting **"))
-    args = parse_args()
+    if not args:
+        args = parse_args()
     vault = Vault(path=args.file, password=args.password)
     signal.signal(signal.SIGUSR1, output_password)
     with open(pid_file, 'w') as f:
@@ -574,14 +604,19 @@ def main():
         output_password(None, None)
         return
     print(intro_msg)
-    while True:
+    while loops is None or loops:
+        if loops is not None:
+            loops -= 1
         print("command: \rcommand: ", end='')
         i, o, e = select.select([sys.stdin], [], [], args.timeout)
+        if kill:
+            return
         if not i:
             timeout_loop(vault)
             continue
         user_input = sys.stdin.readline().strip()
         execute_command(vault, user_input)
+    return vault  # for testing
 
 
 if __name__ == '__main__':
