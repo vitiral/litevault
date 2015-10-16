@@ -91,7 +91,7 @@ This has two answers
 - litevault is a single python file with less than 600 lines as of this writing.
     it would be simple for you to look through it yourself and at least note
     that:
-    - it does not import any web modules and therefore (probably) does  not
+    - it does not import any web modules and therefore (probably) does not
         communicate with the web
     - it writes to a file in only one documented place
     - when it uses subprocess, it communicates all sensitive data through

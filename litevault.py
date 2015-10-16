@@ -63,31 +63,21 @@ TIMEOUT_PWD_KEY='__litevault_timeout_password__'
 # X keboard automation mappings
 # http://www.linux.org/threads/xdotool-keyboard.6414/
 
-shift_c = 'keydown Shift_L\nusleep 500\nkey {}\nusleep 500\nkeyup Shift_L'.format
+shift_c = 'keydown Shift_L\nusleep 50\nkey {}\nusleep 50\nkeyup Shift_L'.format
 
 x_special_char_mappings = {
-    '!': shift_c('1'),
-    '@': shift_c('2'),
-    '#': shift_c('3'),
-    '$': shift_c('4'),
-    '%': shift_c('5'),
-    '^': shift_c('6'),
-    '&': shift_c('7'),
-    '*': shift_c('8'),
-    '(': shift_c('9'),
-    ')': shift_c('0'),
-    ':': shift_c('semicolon'),
-    '~': shift_c('quoteleft'),
-    '_': shift_c('minus'),
-    '+': shift_c('equal'),
-    '{': shift_c('bracketleft'),
-    '}': shift_c('bracketright'),
-    '|': shift_c('backslash'),
-    '"': shift_c('quoteright'),
-    '<': shift_c('comma'),
-    '>': shift_c('period'),
-    '?': shift_c('slash'),
-    '\n': 'keydown Return\nkeyup Return'      ,
+    '~': shift_c('quoteleft')            , '!': shift_c('1')            ,
+    '@': shift_c('2')                    , '#': shift_c('3')            ,
+    '$': shift_c('4')                    , '%': shift_c('5')            ,
+    '^': shift_c('6')                    , '&': shift_c('7')            ,
+    '*': shift_c('8')                    , '(': shift_c('9')            ,
+    ')': shift_c('0')                    , ':': shift_c('semicolon')    ,
+    '_': shift_c('minus')                , '+': shift_c('equal')        ,
+    '{': shift_c('bracketleft')          , '}': shift_c('bracketright') ,
+    '|': shift_c('backslash')            , '"': shift_c('quoteright')   ,
+    '<': shift_c('comma')                , '>': shift_c('period')       ,
+    '?': shift_c('slash')                ,
+    '\n': 'keydown Return\nusleep 50\nkeyup Return' ,
 }
 
 x_char_mappings = {
@@ -129,7 +119,6 @@ def send_keypresses(characters, delay_us=10000, wait=0):
 
 ##################################################
 # Convenience Functions
-
 
 def get_keys(dictionary, keys):
     return {k: dictionary[k] for k in keys}
