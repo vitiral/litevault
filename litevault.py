@@ -1,4 +1,5 @@
 #!/usr/bin/python
+''' litevault is a lightweight password manager written in pure python '''
 from __future__ import print_function
 
 import os
@@ -6,6 +7,7 @@ import sys
 import re
 import json
 import time
+import tempfile
 import random
 import string
 import getpass
@@ -16,13 +18,15 @@ import argparse
 
 import scrypt
 
+__version__ = '0.0.3'
+
 # Python 2 & 3 compatibility
 if sys.version_info[0] == 2:
     input = raw_input
 
 # Global current stored password
 curpass = ''
-keypress_delay_us = '10000'
+args = None
 
 ##################################################
 # Constants
@@ -91,6 +95,10 @@ def send_keypresses(characters, delay_us=10000):
 ##################################################
 # Convenience Functions
 
+
+def get_keys(dictionary, keys):
+    return {k: dictionary[k] for k in keys}
+
 def set_password_dialog(first_message="New Password: "):
     while True:
         p1 = getpass.getpass(first_message)
@@ -134,7 +142,7 @@ def output_password(signum, stack):
     '''Output the password on the keyboard'''
     if not curpass:
         return
-    send_keypresses(curpass, keypress_delay_us)
+    send_keypresses(curpass, args.keypress_delay_us)
 
 
 def verify_environment():
@@ -148,16 +156,27 @@ def verify_environment():
             quit_app('!! Dependency not met: {} !!'.format(r), rc=1)
 
 
-def input_eof(msg=''):
+def input_text(msg=''):
     print(msg)
-    text = [input(" ** Press Cntrl+D to finish or ENTER to skip **\n> ")]
+    print(" ** Press Cntrl+D to finish, e to edit with {}".format(args.editor) +
+          " or ENTER to skip")
+    text = [input("> ")]
     if not text[0]:
         return ''
+    if text[0] == 'e':
+        fno, path = tempfile.mkstemp(dir='/dev/shm')
+        try:
+            subprocess.call('{} {}'.format(args.editor, f.name))
+            os.fsync(fno)
+            with open(path, 'r') as f:
+                return f.read().strip()
+        finally:
+            os.remove(path)
     while True:
         try:
             text.append(input('> '))
         except EOFError:
-            return '\n'.join(text)
+            return '\n'.join(text).strip()
 
 
 def generate_password(length):
@@ -288,31 +307,31 @@ def list_items(vault, item=None):
         items = [i for i in vault if pat.search(i)]
     pplist(items)
     user_input = clear_screen("command: ")
-    if not user_input:
-        return
     execute_command(vault, user_input)
 
 
 # Creating, Deleting, and Saving
 
 def create_item(vault, item):
-    if item in vault:
-        print("NOTICE: {} already exists in vault".format(item))
+    quit_msg = "Got 'q' -- Quiting"
     print(" ** Type in the value for each.                                               **\n"
           " ** To skip a field (and not change it), press ENTER without typing anything. **\n"
           " ** To quit (and not store) type q for any field.                             **")
+    if item in vault:
+        print("!! WARNING: {} already exists in vault, !!\n".format(item) +
+              "!! any non-skipped items will be overwritten !!")
     username = input("username: ")
-    quit_msg = "Got 'q' -- Quiting"
     if username == 'q':
         print(quit_msg)
         return
-    print(" ** Enter password. Enter g [number] to generate a random              **\n"
-          " ** password of length `number` (defaults to 32 if no input specified) **")
+    print(" ** Enter password. Enter g [number] to generate a random password **\n"
+          " ** of length `number` (defaults to 32 if no input specified)      **")
     password = getpass.getpass("password: ")
     if password == 'q':
         print(quit_msg)
         return
     if password[0:2].strip() == 'g':
+        # Generate password
         length = password[2:]
         if length:
             # if length isn't valid, re-ask until it is
@@ -329,7 +348,8 @@ def create_item(vault, item):
         else:
             length = 32
         password = generate_password(length)
-    info = input_eof("** info:").strip()
+
+    info = input_text("** info:").strip()
     if info == 'q':
         print(quit_msg)
         return
@@ -346,6 +366,7 @@ def create_item(vault, item):
         value['p'] = password
     if info:
         value['i'] = info
+    value['t'] = time.time()
     clear_screen(False)
     print(" ** Stored {}. Use 's' to save to file **".format(item))
     if load:
@@ -392,6 +413,8 @@ def set_timeout_pwd(vault, *args):
 # Other User Functions
 
 def execute_command(vault, user_input):
+    if not user_input:
+        return
     print_help = lambda vault, item: print(help_msg)
     interface = {
         # global actions
@@ -417,12 +440,7 @@ def execute_command(vault, user_input):
         item = ' '.join(user_input)
         print("Defaulting to command 'a'")
     else:
-        if len(user_input) > 1:
-            cmd = user_input[0]
-            item = ' '.join(user_input[1:])
-        else:
-            cmd, = user_input
-            item = None
+        item = ' '.join(user_input[1:]) if len(user_input) > 1 else None
     return interface[cmd](vault, item)
 
 
@@ -454,17 +472,65 @@ def timeout_loop(vault, locked=False):
 ##################################################
 # App Functions
 
+def merge_vaults(path1, path2):
+    ''' Merge two vaults together using timestamps to determine which keys to keep '''
+    print("** Enter password for vault1. This is the password that will be used **\n"
+          "** for the new vault **")
+    msg = "Password for {}: ".format(path1)
+    main_pwd = getpass.getpass(msg.format(path1))
+    vault1 = Vault(path1, main_pwd)
+    try:
+        vault2 = Vault(path2, main_pwd)
+    except scrypt.error:
+        pwd = getpass.getpass(msg.format(path2))
+        vault2 = Vault(path2, pwd)
+    vault = Vault(args.file, main_pwd)
+    # get keys that are in both
+    v1_keys = set(vault1).difference(vault2)
+    v2_keys = set(vault2).difference(vault1)
+    print("using vault 1 for:", v1_keys)
+    print("using vault 2 for:", v2_keys)
+    vault.update(get_keys(vault1, v1_keys))
+    vault.update(get_keys(vault2, v2_keys))
+    for key in set(vault1).intersection(vault2):
+        ts1 = vault1[key].pop('t', 0)
+        ts2 = vault2[key].pop('t', 0)
+        if ts1 == ts2:
+            print(" ** timestamps for {} are identical. **")
+            while True:
+                value = input("Which vault (1 or 2):")
+                try:
+                    value = int(value)
+                    if value in (1, 2):
+                        break
+                except ValueError:
+                    pass
+            ts1 = ts2 + 1 if value == 1 else ts2 - 1
+        if ts1 > ts2:
+            print(" ** using vault1 for {} **".format(key))
+            vault[key] = vault1[key]
+        elif ts1 < ts2:
+            print(" ** using vault2 for {} **".format(key))
+            vault[key] = vault2[key]
+    vault.save()
+    print(" ** Successfully merged and saved new vault. Exiting ** ")
+
+
 def parse_args():
+    global args
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--send_stored_pass', action='store_true')
-    parser.add_argument('-w', '--wait', default=0.25, help="Wait time before sending the stored password")
-    parser.add_argument('-p', '--password', help='Use only in testing, not secure!')
     parser.add_argument('-f', '--file', default='~/.vault',
                         help='password file to load. Default is ~/.vault')
     parser.add_argument('-t', '--timeout', default=300, type=float,
                         help='time in seconds before program is locked with no activity (default=300)')
+    parser.add_argument('-e', '--editor', help="Editor to use for info screen")
+    parser.add_argument('-m', '--merge', nargs='+', help="input two vaults to merge based on timestamps")
+    parser.add_argument('-s', '--send_stored_pass', action='store_true',
+                        help="bind this to a keyboard shortcut to send password through keyboard")
     parser.add_argument('-k', '--keypress_delay_us', default=10000, type=int,
                         help='time in micro-seconds to delay between each keypress when entering passwords')
+    parser.add_argument('-w', '--wait', default=0.25, help="Wait time before sending the stored password")
+    parser.add_argument('-p', '--password', help='Use only in testing, not secure!')
     parser.add_argument('--test', action='store_true', help='used for testing')
     args = parser.parse_args()
     verify_environment()
@@ -474,12 +540,14 @@ def parse_args():
         time.sleep(args.wait)
         subprocess.check_output('kill -10 {}'.format(pid).encode(), shell=True)
         sys.exit()
-    global keypress_delay_us
-    keypress_delay_us = args.keypress_delay_us
+    if args.merge:
+        merge_vaults(*args.merge)
+        quit_app()
+    args.editor = args.editor or os.environ.get('EDITOR') or 'nano'
     path = os.path.abspath(os.path.expanduser(args.file))
     if not os.path.exists(path):
         print("No vault file at {} -- initializing empty vault".format(args.file))
-    args.path = path
+    args.file = path
     if not args.password:
         msg = "Password for {}: ".format(args.file)
         if not os.path.exists(path):
@@ -490,9 +558,9 @@ def parse_args():
 
 
 def main():
-    signal.signal(signal.SIGINT, lambda *a: quit_app(" ** Received Cntrl+C, quitting **"))
+    signal.signal(signal.SIGINT, lambda *a: quit_app("\n ** Received Cntrl+C, quitting **"))
     args = parse_args()
-    vault = Vault(path=args.path, password=args.password)
+    vault = Vault(path=args.file, password=args.password)
     signal.signal(signal.SIGUSR1, output_password)
     with open(pid_file, 'w') as f:
         f.write(str(os.getpid()))
@@ -508,8 +576,6 @@ def main():
             timeout_loop(vault)
             continue
         user_input = sys.stdin.readline().strip()
-        if not user_input:
-            continue
         execute_command(vault, user_input)
 
 
