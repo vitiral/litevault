@@ -1,4 +1,4 @@
-# litevault -- the lightweight command line password manager
+# litevault
 
 litevault is a command line password manager that allows you to safely store
 and retrieve your passwords and keep the vault file on github or other public
