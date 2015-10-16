@@ -1,5 +1,6 @@
 #!/usr/bin/python
-''' litevault is a lightweight password manager written in pure python '''
+''' litevault - a lightweight password manager written in pure python
+'''
 from __future__ import print_function
 
 import os
@@ -156,7 +157,7 @@ def verify_environment():
             quit_app('!! Dependency not met: {} !!'.format(r), rc=1)
 
 
-def input_text(msg=''):
+def input_text(msg='', previous=''):
     print(msg)
     print(" ** Press Cntrl+D to finish, e to edit with {}".format(args.editor) +
           " or ENTER to skip")
@@ -166,6 +167,9 @@ def input_text(msg=''):
     if text[0] == 'e':
         fno, path = tempfile.mkstemp(dir='/dev/shm')
         try:
+            with open(path, 'w') as f:
+                f.write(previous)
+            os.fsync(fno)
             subprocess.call('{} {}'.format(args.editor, f.name))
             os.fsync(fno)
             with open(path, 'r') as f:
@@ -349,7 +353,8 @@ def create_item(vault, item):
             length = 32
         password = generate_password(length)
 
-    info = input_text("** info:").strip()
+    current_info = vault[item].get('i', '') if item in vault else ''
+    info = input_text("** info:", current_info).strip()
     if info == 'q':
         print(quit_msg)
         return
@@ -543,7 +548,7 @@ def parse_args():
     if args.merge:
         merge_vaults(*args.merge)
         quit_app()
-    args.editor = args.editor or os.environ.get('EDITOR') or 'nano'
+    args.editor = args.editor or 'nano -R'
     path = os.path.abspath(os.path.expanduser(args.file))
     if not os.path.exists(path):
         print("No vault file at {} -- initializing empty vault".format(args.file))
