@@ -19,7 +19,7 @@ import argparse
 
 import scrypt
 
-__version__ = '0.0.3'
+__version__ = '0.1.0'
 
 # Python 2 & 3 compatibility
 if sys.version_info[0] == 2:
@@ -193,7 +193,7 @@ def input_text(msg='', previous=''):
             with open(path, 'w') as f:
                 f.write(previous)
             os.fsync(fno)
-            subprocess.call('{} {}'.format(args.editor, f.name))
+            subprocess.call('{} {}'.format(args.editor, f.name), shell=True)
             os.fsync(fno)
             with open(path, 'r') as f:
                 return f.read().strip()
@@ -333,6 +333,7 @@ def list_items(vault, item=None):
     else:
         pat = re.compile(r'.*?'.join(item))
         items = [i for i in vault if pat.search(i)]
+    items = [i for i in items if i not in {TIMEOUT_PWD_KEY}]
     pplist(items)
     user_input = clear_screen("command: ")
     execute_command(vault, user_input)
@@ -387,12 +388,12 @@ def create_item(vault, item):
     load = False
     if item not in vault:
         vault[item] = {}
-        load = True
     value = vault[item]
     if username:
         value['u'] = username
     if password:
         value['p'] = password
+        load = True
     if info:
         value['i'] = info
     value['t'] = time.time()
@@ -401,7 +402,7 @@ def create_item(vault, item):
     vault.save()
     print("Vault Saved")
     if load:
-        print(" ** Loading new item's password **")
+        print(" ** Loading new password **")
         load_password(vault, item)
 
 
@@ -445,10 +446,8 @@ def execute_command(vault, user_input):
     interface = {
         # global actions
         '?': print_help,    'h': print_help,
-        'q': quit_app,      'exit': quit_app,
         'n': new_password,
         't': set_timeout_pwd,
-        'L': lambda vault, item: timeout_loop(vault, locked=True),
         # actions on items
         'l': list_items,    'ls': list_items,
         'c': create_item,   'mk': create_item,
@@ -543,9 +542,11 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--file', default='~/.vault',
                         help='password file to load. Default is ~/.vault')
-    parser.add_argument('-t', '--timeout', default=90, type=float,
-                        help='time in seconds before program is locked with no activity (default=300)')
-    parser.add_argument('-e', '--editor', help="Editor to use for info screen")
+    parser.add_argument('-t', '--timeout', default=60, type=float,
+                        help='time in seconds before program is locked if there is no activity (default=60).'
+                              '. It is recommended to set a "timeout password" with the "t" command')
+    parser.add_argument('-e', '--editor', help="Editor to use for info screen. This should be opened in"
+                                               " 'secure mode'. See README.")
     parser.add_argument('-m', '--merge', nargs='+', help="input two vaults to merge based on timestamps")
     parser.add_argument('-s', '--send_stored_pass', action='store_true',
                         help="bind this to a keyboard shortcut to send password through keyboard")
@@ -604,8 +605,16 @@ def main(loops=None):
             timeout_loop(vault)
             continue
         user_input = sys.stdin.readline().strip()
-        execute_command(vault, user_input)
-    return vault  # for testing
+        if user_input == 'L':
+            timeout_loop(vault, locked=True)
+            continue
+        if user_input in {'q', 'exit'}:
+            quit_app()
+        try:
+            execute_command(vault, user_input)
+        except (SystemExit, EOFError):
+            pass
+    return vault
 
 
 if __name__ == '__main__':
