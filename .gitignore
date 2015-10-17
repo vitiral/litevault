@@ -1,0 +1,7 @@
+junk
+*.pyc
+.cache
+junk
+*.pyc
+.cache
+*.egg-info

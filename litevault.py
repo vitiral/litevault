@@ -8,6 +8,7 @@ import sys
 import re
 import json
 import time
+import datetime
 import tempfile
 import random
 import string
@@ -19,7 +20,7 @@ import argparse
 
 import scrypt
 
-__version__ = '0.1.0'
+__version__ = '0.0.4'
 
 # Python 2 & 3 compatibility
 if sys.version_info[0] == 2:
@@ -50,6 +51,8 @@ t              = set new timeout password
 l or ls     [] = list items. Add an item to do a fuzzy search
 c or mk     [] = create/overwrite item in vault
 d or rm     [] = delete data from vault
+m or mv     [] = move item to new key
+e           [] = edit info in editor (slightly less secure, see docs)
 u           [] = get user
 p           [] = get password
 i           [] = get info
@@ -180,14 +183,15 @@ def verify_environment():
             quit_app('!! Dependency not met: {} !!'.format(r), rc=1)
 
 
-def input_text(msg='', previous=''):
+def input_text(msg='', previous='', use_editor=False):
     print(msg)
-    print(" ** Press Cntrl+D to finish, e to edit with {}".format(args.editor) +
-          " or ENTER to skip")
-    text = [input("> ")]
-    if not text[0]:
-        return ''
-    if text[0] == 'e':
+    if not use_editor:
+        print(" ** Press Cntrl+D to finish, e to edit with {}".format(args.editor) +
+              " or ENTER to skip")
+        text = [input("> ")]
+        if not text[0]:
+            return ''
+    if use_editor or text[0] == 'e':
         fno, path = tempfile.mkstemp(dir='/dev/shm')
         try:
             with open(path, 'w') as f:
@@ -272,14 +276,11 @@ def load_info(vault, item):
         print_item_not_found(item)
         return
     value = vault[item]
-    key = 'i' if 'i' in value else 'info' if 'info' in value else None
-    if key is None:
-        print('!! No info for {} !!'.format(item))
-        return
-    info = value[key]
-    print('\n ** Info **\n'.format(item) + info)
+    ts = value.get('t', None)
+    ts = datetime.datetime.fromtimestamp(ts) if ts else 'unknown'
+    print('\n ** Info on {}**\n* username: {}\nstored time: {}\n* Info: \n{}'.format(
+          item, value.get('u'), str(ts), value.get('i')))
     clear_screen()
-    return info
 
 
 def load_password(vault, item, append=False):
@@ -333,13 +334,20 @@ def list_items(vault, item=None):
     else:
         pat = re.compile(r'.*?'.join(item))
         items = [i for i in vault if pat.search(i)]
-    items = [i for i in items if i not in {TIMEOUT_PWD_KEY}]
+    items = sorted(i for i in items if i not in {TIMEOUT_PWD_KEY})
     pplist(items)
     user_input = clear_screen("command: ")
     execute_command(vault, user_input)
 
 
 # Creating, Deleting, and Saving
+
+def edit_info(vault, item):
+    previous = vault[item].get('i', '') if item in vault else ''
+    info = input_text("** Editing info with editor **", previous, use_editor=True)
+    vault[item] = info
+    save_vault()
+
 
 def create_item(vault, item):
     quit_msg = "Got 'q' -- Quiting"
@@ -379,7 +387,7 @@ def create_item(vault, item):
         password = generate_password(length)
 
     current_info = vault[item].get('i', '') if item in vault else ''
-    info = input_text("** info:", current_info).strip()
+    info = input_text("** info:", current_info)
     if info == 'q':
         print(quit_msg)
         return
@@ -393,6 +401,7 @@ def create_item(vault, item):
         value['u'] = username
     if password:
         value['p'] = password
+        value['v'] = __version__
         load = True
     if info:
         value['i'] = info
@@ -406,6 +415,11 @@ def create_item(vault, item):
         load_password(vault, item)
 
 
+def save_vault(vault):
+    vault.save()
+    print(" ** Vault Saved **")
+
+
 def delete_item(vault, item):
     if item not in vault:
         print("Item {} not in vault".format(item))
@@ -417,6 +431,15 @@ def delete_item(vault, item):
     print("Deleted {} ".format(item))
 
 
+def move_item(vault, item):
+    newitem = input("New name for {}: ".format(item)).strip()
+    if newitem in vault:
+        print("!! {} already in vault. Delete or move that item first !!")
+        return
+    vault[newitem] = vault.pop(item)
+    save_vault(vault)
+
+
 def new_password(vault, *args):
     newpass = set_password_dialog("Enter new vault password: ")
     if not newpass:
@@ -424,8 +447,7 @@ def new_password(vault, *args):
         return
     vault.save()
     vault.password = newpass
-    vault.save()
-    print("Vault with new password saved")
+    save_vault(vault)
 
 
 def set_timeout_pwd(vault, *args):
@@ -434,7 +456,7 @@ def set_timeout_pwd(vault, *args):
         print("No password entered, doing nothing.")
         return
     vault[TIMEOUT_PWD_KEY] = tpass
-    print("New timeout password saved")
+    save_vault(vault)
 
 
 # Other User Functions
@@ -452,6 +474,8 @@ def execute_command(vault, user_input):
         'l': list_items,    'ls': list_items,
         'c': create_item,   'mk': create_item,
         'd': delete_item,   'rm': delete_item,
+        'm': move_item,     'mv': move_item,
+        'e': edit_info,
         'u': load_user,
         'p': load_password,
         'i': load_info,
@@ -533,7 +557,7 @@ def merge_vaults(path1, path2):
         elif ts1 < ts2:
             print(" ** using vault2 for {} **".format(key))
             vault[key] = vault2[key]
-    vault.save()
+    save_vault(vault)
     print(" ** Successfully merged and saved new vault. Exiting ** ")
 
 
@@ -566,7 +590,14 @@ def parse_args():
     if args.merge:
         merge_vaults(*args.merge)
         quit_app()
-    args.editor = args.editor or 'nano -R'
+    args.editor = args.editor or os.environ['EDITOR'] or 'nano'
+    safe_editor_versions = {
+        'nano': 'nano -R',      # -R = restricted mode (default)
+        'vim': 'vim -Zu NONE',  # -Z = restricted mode, -u NONE = don't load plugins
+        'emacs': 'emacs -nw -q -nl -nsl',  # terminal mode, no init file, no shared mem, no-site-lisp
+    }
+    if args.editor in safe_editor_versions:
+        args.editor = safe_editor_versions[args.editor]
     path = os.path.abspath(os.path.expanduser(args.file))
     if not os.path.exists(path):
         print("No vault file at {} -- initializing empty vault".format(args.file))

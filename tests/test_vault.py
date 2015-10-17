@@ -16,16 +16,19 @@ passwords = {
         'u': 'mynameisbob',
         'p': 'save me charlie 43',
         'i': 'this is a bank',
+        'v': litevault.__version__,
     },
     'gmail': {
         'u': 'user@gmail.com',
         'p': 'the best password',
         'i': 'my email! whooo!',
+        'v': litevault.__version__,
     },
     'supertest': {
         'u': 'I have a user',
         'p': 'special_chars: ' + ' '.join(string.ascii_letters + string.punctuation),
         'i': 'I have created\nthe ultimate\npassword',
+        'v': litevault.__version__,
     }
 }
 
@@ -94,6 +97,7 @@ class TestApp(TestCase):
 
     def tearDown(self):
         litevault.kill = True
+        os.remove(litevault.args.file)
 
     def test_load_password(self, quit_app):
         '''Intrinsically tests save password from setUp as well as the use of the automated
