@@ -37,18 +37,19 @@ kill = False
 MEGABYTE = 1048576
 pid_file = '/tmp/litevault.pid'
 intro_msg = r'''
- ************************************
- *       /-------\  Type "?" or "h" *
- *  lite | vault |     for help.    *
- *       \-------/                  *
- ************************************'''
+ **************************************************
+ *       ###########   Type "?" or "h" for help   *
+ *  lite || vault || Docs and bug reporting at:   *
+ *       ########### github.com/vitiral/litevault *
+ **************************************************'''
 help_msg = '''\
 Help:
 h or ?         = help
 q or exit      = quit litevault
 L              = lock litevault (same as if it timed out)
+s              = save vault. Note: this is done automatically whenever an item is edited
 n              = set new password for vault (and save it to disk)
-t              = set new timeout password
+t              = set new timeout password to vault
 l or ls     [] = list items. Add an item to do a fuzzy search
 c or mk     [] = create/overwrite item in vault
 d or rm     [] = delete data from vault
@@ -417,7 +418,7 @@ def create_item(vault, item):
         load_password(vault, item)
 
 
-def save_vault(vault):
+def save_vault(vault, *args):
     vault.save()
     print(" ** Vault Saved **")
 
@@ -470,6 +471,7 @@ def execute_command(vault, user_input):
     interface = {
         # global actions
         '?': print_help,    'h': print_help,
+        's': save_vault,
         'n': new_password,
         't': set_timeout_pwd,
         # actions on items
@@ -519,29 +521,27 @@ def timeout_loop(vault, locked=False):
 ##################################################
 # App Functions
 
-def merge_vaults(path1, path2):
+def merge_vaults(args):
     ''' Merge two vaults together using timestamps to determine which keys to keep '''
-    print("** Enter password for vault1. This is the password that will be used **\n"
-          "** for the new vault **")
-    msg = "Password for {}: ".format(path1)
-    main_pwd = getpass.getpass(msg.format(path1))
-    vault1 = Vault(path1, main_pwd)
-    try:
-        vault2 = Vault(path2, main_pwd)
+    print("** Merging vault {} --> {} **".format(args.file, args.file))
+    msg = "Password for {}: "
+    vault1 = Vault(args.file, args.password)
+    try:  # try to use same password, otherwise ask for password
+        vault2 = Vault(args.merge, args.password)
     except scrypt.error:
-        pwd = getpass.getpass(msg.format(path2))
-        vault2 = Vault(path2, pwd)
-    vault = Vault(args.file, main_pwd)
+        pwd = getpass.getpass(msg.format(args.merge))
+        vault2 = Vault(args.merge, pwd)
+    out_vault = Vault(args.file, args.password, initial_data={})
     # get keys that are in both
     v1_keys = set(vault1).difference(vault2)
     v2_keys = set(vault2).difference(vault1)
     print("using vault 1 for:", v1_keys)
     print("using vault 2 for:", v2_keys)
-    vault.update(get_keys(vault1, v1_keys))
-    vault.update(get_keys(vault2, v2_keys))
+    out_vault.update(get_keys(vault1, v1_keys))
+    out_vault.update(get_keys(vault2, v2_keys))
     for key in set(vault1).intersection(vault2):
-        ts1 = vault1[key].pop('t', 0)
-        ts2 = vault2[key].pop('t', 0)
+        ts1 = vault1[key].get('t', 0)
+        ts2 = vault2[key].get('t', 0)
         if ts1 == ts2:
             print(" ** timestamps for {} are identical. **")
             while True:
@@ -553,27 +553,30 @@ def merge_vaults(path1, path2):
                 except ValueError:
                     pass
             ts1 = ts2 + 1 if value == 1 else ts2 - 1
+
+        msg = " ** using vault{} for {}, ts={} **"
         if ts1 > ts2:
-            print(" ** using vault1 for {} **".format(key))
-            vault[key] = vault1[key]
+            print(msg.format(1, key, datetime.datetime.fromtimestamp(ts1)))
+            out_vault[key] = vault1[key]
         elif ts1 < ts2:
-            print(" ** using vault2 for {} **".format(key))
-            vault[key] = vault2[key]
-    save_vault(vault)
-    print(" ** Successfully merged and saved new vault. Exiting ** ")
+            print(msg.format(2, key, datetime.datetime.fromtimestamp(ts2)))
+            out_vault[key] = vault2[key]
+    save_vault(out_vault)
+    print(" ** Successfully merged and loaded vault. Saved at {} ** ".format(args.file))
+    return out_vault
 
 
 def parse_args():
     global args
     parser = argparse.ArgumentParser()
-    parser.add_argument('-f', '--file', default='~/.vault',
+    parser.add_argument('file', default='~/.vault', nargs='?',
                         help='password file to load. Default is ~/.vault')
     parser.add_argument('-t', '--timeout', default=60, type=float,
                         help='time in seconds before program is locked if there is no activity (default=60).'
                               '. It is recommended to set a "timeout password" with the "t" command')
     parser.add_argument('-e', '--editor', help="Editor to use for info screen. This should be opened in"
                                                " 'secure mode'. See README.")
-    parser.add_argument('-m', '--merge', nargs='+', help="input two vaults to merge based on timestamps")
+    parser.add_argument('-m', '--merge', help="input vault to be merged into main vault")
     parser.add_argument('--maxtime', default=0.5, type=float, help=
         "the maxtime to send to scrypt. This is the maximum amount of time it will take to encrypt"
         " the passwords on your system.")
@@ -595,9 +598,6 @@ def parse_args():
         time.sleep(args.wait)
         subprocess.check_output('kill -10 {}'.format(pid).encode(), shell=True)
         sys.exit()
-    if args.merge:
-        merge_vaults(*args.merge)
-        quit_app()
     args.editor = args.editor or os.environ['EDITOR'] or 'nano'
     safe_editor_versions = {
         'nano': 'nano -R',      # -R = restricted mode (default)
@@ -624,7 +624,10 @@ def main(loops=None):
     signal.signal(signal.SIGINT, lambda *a: quit_app("\n ** Received Cntrl+C, quitting **"))
     if not args:
         args = parse_args()
-    vault = Vault(path=args.file, password=args.password, maxtime=args.maxtime, maxmem=args.maxmem)
+    if args.merge:
+        vault = merge_vaults(args)
+    else:
+        vault = Vault(path=args.file, password=args.password, maxtime=args.maxtime, maxmem=args.maxmem)
     signal.signal(signal.SIGUSR1, output_password)
     with open(pid_file, 'w') as f:
         f.write(str(os.getpid()))

@@ -47,11 +47,16 @@ class DefaultArgs(object):
 
 
 class TestVault(TestCase):
+    @staticmethod
+    def get_vault(path, passwords):
+        vault = litevault.Vault(path, 'hello', maxtime=0.01, maxmem=16,
+                                initial_data=passwords)
+        assert vault == passwords
+        return vault
+
     def test_load_dump(self):
         with tempfile.NamedTemporaryFile('wb+') as f:
-            vault = litevault.Vault(f.name, 'hello', maxtime=0.01, maxmem=16,
-                                    initial_data=passwords)
-            assert vault == passwords
+            vault = self.get_vault(f.name, passwords)
 
             # data not actually saved yet. Save it and reload it
             vault.save()
@@ -63,6 +68,37 @@ class TestVault(TestCase):
             encrypted = f.read()
             with self.assertRaises(UnicodeDecodeError):
                 encrypted.decode()
+
+    def test_merge(self):
+        fno, fpath = tempfile.mkstemp()
+        fno2, fpath2 = tempfile.mkstemp()
+        os.remove(fpath)
+        os.remove(fpath2)
+        pw1 = {
+            'from1': {'u': '1', 't': 1},
+            'changeme': {'u': 'do not have this', 't': 1},
+        }
+        pw2 = {
+            'from2': {'u': '2', 't': 1},
+            'changeme': {'u': 'have this', 't': 2},
+        }
+        v = self.get_vault(fpath, pw1)
+        v.save()
+        v = self.get_vault(fpath2, pw2)
+        v.save()
+        args = DefaultArgs()
+        args.file = fpath
+        args.merge = fpath2
+        result = litevault.merge_vaults(args)
+        expected = {
+            'from1': {'u': '1', 't': 1},
+            'from2': {'u': '2', 't': 1},
+            'changeme': {'u': 'have this', 't': 2},
+        }
+        assert result == expected
+        os.remove(fpath)
+        os.remove(fpath2)
+
 
 def send_keypresses_thread(keys, wait=0.1):
     th = Thread(target=litevault.send_keypresses, args=(keys, 2000, wait))
