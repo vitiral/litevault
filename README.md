@@ -38,14 +38,14 @@ sudo chmod a+x /usr/bin/litevault
 in your `~/.i3` or `~/.config/i3/config`
 ```
 # Create a litevault scratchpad
-exec urxvt -name litevault --hold -e litevault -f ~/.config/vault
+exec urxvt -name litevault --hold -e litevault ~/.config/vault -e vim
 for_window [title="^litevault"] move to scratchpad
-
-# setup the "send password" command
-bindsym $mod+p exec python ~/projects/litevault/litevault.py -s &
 
 # setup the "show litevault scratchpad" command
 bindsym $mod+Shift+p [title="^litevault"] scratchpad show
+
+# setup the "send password" command
+bindsym $mod+p exec litevault -s &
 ```
 
 ## Features

@@ -339,8 +339,6 @@ def list_items(vault, item=None):
         items = [i for i in vault if pat.search(i)]
     items = sorted(i for i in items if i not in {TIMEOUT_PWD_KEY})
     pplist(items)
-    user_input = clear_screen("command: ")
-    execute_command(vault, user_input)
 
 
 # Creating, Deleting, and Saving
@@ -349,7 +347,7 @@ def edit_info(vault, item):
     previous = vault[item].get('i', '') if item in vault else ''
     info = input_text("** Editing info with editor **", previous, use_editor=True)
     vault[item] = info
-    save_vault()
+    save_vault(vault)
 
 
 def create_item(vault, item):
