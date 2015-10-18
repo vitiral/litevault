@@ -42,12 +42,15 @@ class DefaultArgs(object):
     wait = 0.05
     password = 'hello'
     test = False
+    maxtime = 0.01
+    maxmem = 16
 
 
 class TestVault(TestCase):
     def test_load_dump(self):
         with tempfile.NamedTemporaryFile('wb+') as f:
-            vault = litevault.Vault(f.name, 'hello', maxtime=0.01, initial_data=passwords)
+            vault = litevault.Vault(f.name, 'hello', maxtime=0.01, maxmem=16,
+                                    initial_data=passwords)
             assert vault == passwords
 
             # data not actually saved yet. Save it and reload it
@@ -66,22 +69,25 @@ def send_keypresses_thread(keys, wait=0.1):
     th.start()
     return th
 
-def fill_app_thread(passwords, wait=0.1):
+def run_keypresses_thread(passwords=None, extra=None, wait=0.1):
+    extra = extra or []
     def fill_app():
         time.sleep(wait)
         for key, value in passwords.items():
             litevault.send_keypresses('c {}\n'.format(key) )
-            time.sleep(0.2)
             litevault.send_keypresses(value.get('u', '') + '\n' )
-            time.sleep(0.2)
             litevault.send_keypresses(value.get('p', '') + '\n')
-            time.sleep(0.2)
             info = value.get('i', '')
             if info:
                 litevault.send_keypresses(info + '\n')
-                time.sleep(0.4)
+                time.sleep(0.1)
                 subprocess.call('xdotool keydown control key d keyup control'.encode().split())
-            time.sleep(0.5)
+            time.sleep(0.1)
+
+        for e in extra:
+            litevault.send_keypresses(e)
+            time.sleep(0.1)
+
     th = Thread(target=fill_app)
     th.start()
     return th
@@ -102,8 +108,10 @@ class TestApp(TestCase):
     def test_load_password(self, quit_app):
         '''Intrinsically tests save password from setUp as well as the use of the automated
             key presses'''
-        fill_app_thread(passwords, wait=0.5)
-        send_keypresses_thread('p citi\n', wait=10)
+        extra = [
+            'p citi\n',
+        ]
+        run_keypresses_thread(passwords, extra=extra, wait=0.5)
         vault = litevault.main(1 + len(passwords))
         assert litevault.curpass == passwords['citi']['p']
         for value in vault.values():

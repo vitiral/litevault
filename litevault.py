@@ -34,6 +34,7 @@ kill = False
 ##################################################
 # Constants
 
+MEGABYTE = 1048576
 pid_file = '/tmp/litevault.pid'
 intro_msg = r'''
  ************************************
@@ -227,7 +228,7 @@ def quit_app(msg=None, rc=0):
 class Vault(dict):
     """Safe password storage and retrieval"""
 
-    def __init__(self, path, password, maxtime=2, initial_data=None):
+    def __init__(self, path, password, maxtime=0.5, maxmem=256, initial_data=None):
         """
         :path: path to vault file
         :password: password to open file
@@ -235,6 +236,7 @@ class Vault(dict):
         self.path = path
         self.password = password
         self.maxtime = maxtime
+        self.maxmem = maxmem
         if initial_data:
             dict.__init__(self, initial_data)
         else:
@@ -247,7 +249,7 @@ class Vault(dict):
             return
         with open(self.path, 'rb') as f:
             encrypted = f.read()
-        text = scrypt.decrypt(encrypted, self.password, maxtime=self.maxtime * 20)
+        text = scrypt.decrypt(encrypted, self.password, maxtime=self.maxtime * 20, maxmem=self.maxmem * 4 * MEGABYTE, maxmemfrac=50)
         data = json.loads(text)
         self.clear()
         self.update(data)
@@ -257,7 +259,7 @@ class Vault(dict):
             self.clear()
             self.update(passwords)
         text = json.dumps(self)
-        encrypted = scrypt.encrypt(text, self.password, maxtime=self.maxtime)
+        encrypted = scrypt.encrypt(text, self.password, maxtime=self.maxtime, maxmem=self.maxmem * MEGABYTE, maxmemfrac=50)
         with open(self.path, 'wb') as f:
             f.write(encrypted)
 
@@ -572,6 +574,12 @@ def parse_args():
     parser.add_argument('-e', '--editor', help="Editor to use for info screen. This should be opened in"
                                                " 'secure mode'. See README.")
     parser.add_argument('-m', '--merge', nargs='+', help="input two vaults to merge based on timestamps")
+    parser.add_argument('--maxtime', default=0.5, type=float, help=
+        "the maxtime to send to scrypt. This is the maximum amount of time it will take to encrypt"
+        " the passwords on your system.")
+    parser.add_argument('--maxmem', default=256, type=int, help=
+        "the maxmem to send to scrypt in MB. This is the maximum amount of memory for scrypt to use when"
+        " encrypting/decrypting")
     parser.add_argument('-s', '--send_stored_pass', action='store_true',
                         help="bind this to a keyboard shortcut to send password through keyboard")
     parser.add_argument('-k', '--keypress_delay_us', default=10000, type=int,
@@ -616,7 +624,7 @@ def main(loops=None):
     signal.signal(signal.SIGINT, lambda *a: quit_app("\n ** Received Cntrl+C, quitting **"))
     if not args:
         args = parse_args()
-    vault = Vault(path=args.file, password=args.password)
+    vault = Vault(path=args.file, password=args.password, maxtime=args.maxtime, maxmem=args.maxmem)
     signal.signal(signal.SIGUSR1, output_password)
     with open(pid_file, 'w') as f:
         f.write(str(os.getpid()))
@@ -626,8 +634,7 @@ def main(loops=None):
         return
     print(intro_msg)
     while loops is None or loops:
-        if loops is not None:
-            loops -= 1
+        loops = None if loops is None else loops - 1
         print("command: \rcommand: ", end='')
         i, o, e = select.select([sys.stdin], [], [], args.timeout)
         if kill:

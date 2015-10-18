@@ -105,6 +105,7 @@ This has two answers
         to be difficult to crack with brute force, and is used with many
         cryptocurrencies like litecoin
     - [do security experts recommend bcrypt (or why scrypt is better)](http://security.stackexchange.com/questions/4781/do-any-security-experts-recommend-bcrypt-for-password-storage)
+    - [why I **don't** recommend scrypt](http://blog.ircmaxell.com/2014/03/why-i-dont-recommend-scrypt.html) Written in 2014, this blog post provides a good set of reasons **not** to use scrypt, and what settings scrypt needs to be set at for it to be effective. Particularily, it must have maxmem > 4mb (litevault default=256mb)
 
 **Why didn't you use openssl?**
 - I had wanted to use openssl initially, but found it to have several problems.
