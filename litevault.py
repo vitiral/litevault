@@ -14,6 +14,7 @@ import random
 import string
 import getpass
 import subprocess
+import threading
 import signal
 import select
 import argparse
@@ -34,6 +35,7 @@ kill = False
 ##################################################
 # Constants
 
+SLEEP = '\u23f3'
 MEGABYTE = 1048576
 pid_file = '/tmp/litevault.pid'
 intro_msg = r'''
@@ -59,6 +61,7 @@ u           [] = get user
 p           [] = get password
 i           [] = get info
 a           [] = get user + password and show info
+nt          [] = get user + password but do not insert tab between
 [NON-MATCHING] = same as "a [NON-MATCHING]". Happens when item doesn't match any commands
 '''
 TIMEOUT_PWD_KEY='__litevault_timeout_password__'
@@ -83,6 +86,7 @@ x_special_char_mappings = {
     '<': shift_c('comma')                , '>': shift_c('period')       ,
     '?': shift_c('slash')                ,
     '\n': 'keydown Return\nusleep 50\nkeyup Return' ,
+    SLEEP: 'usleep 250000',
 }
 
 x_char_mappings = {
@@ -96,7 +100,7 @@ x_char_mappings = {
 }
 
 
-def send_keypresses(characters, delay_us=10000, wait=0):
+def _send_keypresses(characters, delay_us=10000, wait=0):
     '''Send a sequence of keypresses to the keyboard.
 
     This function is intended to be secure -- as in outside processes should not be
@@ -120,6 +124,15 @@ def send_keypresses(characters, delay_us=10000, wait=0):
     sh = subprocess.Popen(['xte'], stdin=subprocess.PIPE)
     # print("Sending keypresses {}\n{!r}".format(keypresses, keypresses_bytes))
     sh.communicate(input=keypresses_bytes)
+
+
+def send_keypresses(characters, delay_us=10000, wait=0, threaded=False):
+    args = (characters, delay_us, wait)
+    if threaded:
+        t = threading.Thread(target=_send_keypresses, args=args)
+        t.start()
+    else:
+        _send_keypresses(*args)
 
 
 ##################################################
@@ -286,7 +299,7 @@ def load_info(vault, item):
     clear_screen()
 
 
-def load_password(vault, item, append=False):
+def load_password(vault, item, append=False, tab=True):
     if item not in vault:
         print_item_not_found(item)
         return
@@ -298,7 +311,8 @@ def load_password(vault, item, append=False):
         curpass = ''
         return
     if append:
-        curpass += '\t' + value[key] + '\n'
+        tab = '\t' if tab else ''
+        curpass += tab + value[key] + '\n'
     else:
         curpass = value[key]
     print("  Password ready for: {}".format(item))
@@ -321,12 +335,12 @@ def load_user(vault, item):
     print("  Username ready for: {}".format(item))
 
 
-def load_all(vault, item):
+def load_all(vault, item, notab=False):
     if item not in vault:
         print_item_not_found(item)
         return
     load_user(vault, item)
-    load_password(vault, item, append=True)
+    load_password(vault, item, append=True, tab=not notab)
     load_info(vault, item)
 
 
@@ -358,6 +372,10 @@ def create_item(vault, item):
     if item in vault:
         print("!! WARNING: {} already exists in vault, !!\n".format(item) +
               "!! any non-skipped items will be overwritten !!")
+    current_username = vault[item].get('u', '') if item in vault else ''
+    current_username = current_username.replace('\n', '\\n').replace(SLEEP, '\\w')
+    if current_username:
+        send_keypresses(current_username, wait=0.1, threaded=True)
     username = input("username: ")
     if username == 'q':
         print(quit_msg)
@@ -399,7 +417,7 @@ def create_item(vault, item):
         vault[item] = {}
     value = vault[item]
     if username:
-        value['u'] = username
+        value['u'] = username.replace('\\n', '\n').replace('\\w', SLEEP)
     if password:
         value['p'] = password
         value['v'] = __version__
@@ -482,6 +500,7 @@ def execute_command(vault, user_input):
         'p': load_password,
         'i': load_info,
         'a': load_all,
+        'nt': lambda vault, item: load_all(vault, item, notab=True)
     }
     user_input = user_input.split()
     cmd = user_input[0]
