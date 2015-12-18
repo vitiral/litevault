@@ -86,7 +86,7 @@ x_special_char_mappings = {
     '<': shift_c('comma')                , '>': shift_c('period')       ,
     '?': shift_c('slash')                ,
     '\n': 'keydown Return\nusleep 50\nkeyup Return' ,
-    SLEEP: 'usleep 250000',
+    SLEEP: 'usleep 500000',
 }
 
 x_char_mappings = {
@@ -100,7 +100,7 @@ x_char_mappings = {
 }
 
 
-def _send_keypresses(characters, delay_us=10000, wait=0):
+def _send_keypresses(characters, delay_us=20000, wait=0):
     '''Send a sequence of keypresses to the keyboard.
 
     This function is intended to be secure -- as in outside processes should not be
@@ -126,7 +126,7 @@ def _send_keypresses(characters, delay_us=10000, wait=0):
     sh.communicate(input=keypresses_bytes)
 
 
-def send_keypresses(characters, delay_us=10000, wait=0, threaded=False):
+def send_keypresses(characters, delay_us=20000, wait=0, threaded=False):
     args = (characters, delay_us, wait)
     if threaded:
         t = threading.Thread(target=_send_keypresses, args=args)
@@ -358,9 +358,10 @@ def list_items(vault, item=None):
 # Creating, Deleting, and Saving
 
 def edit_info(vault, item):
-    previous = vault[item].get('i', '') if item in vault else ''
+    value = vault[item]
+    previous = value.get('i', '') if item in vault else ''
     info = input_text("** Editing info with editor **", previous, use_editor=True)
-    vault[item] = info
+    value['i'] = info
     save_vault(vault)
 
 
@@ -602,7 +603,7 @@ def parse_args():
         " encrypting/decrypting")
     parser.add_argument('-s', '--send_stored_pass', action='store_true',
                         help="bind this to a keyboard shortcut to send password through keyboard")
-    parser.add_argument('-k', '--keypress_delay_us', default=10000, type=int,
+    parser.add_argument('-k', '--keypress_delay_us', default=20000, type=int,
                         help='time in micro-seconds to delay between each keypress when entering passwords')
     parser.add_argument('-w', '--wait', default=0.25, help="Wait time before sending the stored password")
     parser.add_argument('-p', '--password', help='Use only in testing, not secure!')
